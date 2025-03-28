@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz UI</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/style.css">
+
+
+</head>
+<body>
+<div class="sidebar">
+    <h1>Uixu</h1>
+    <button id="generate-new-question">
+        <i class="fa-solid fa-magnifying-glass"></i> Új kérdés <span id="countdown"></span>
+    </button>
+    <div class="user-div">
+
+    </div>
+    <!-- 🔹 User Card -->
+    <!--div class="user-card">
+        <img src="https://i.pravatar.cc/100" alt="User Avatar" class="user-avatar">
+        <div class="user-info">
+            <h2>John Doe</h2>
+            <p class="points">Pontok: <span style="font-weight: bold;font-size: 20px">1240</span></p>
+        </div>
+    </div-->
+
+
+    <!--button><i class="fas fa-hourglass-half"></i> Meccsek</button>
+    <button><i class="fas fa-home"></i> Dashboard</button>
+    <button><i class="fas fa-gamepad"></i> Quiz Mode</button>
+    <button class="settings-btn"><i class="fas fa-cog"></i> Settings</button>
+    <div class="settings-submenu">
+        <button id="difficulty-bttn"><i class="fas fa-cog"></i> Difficulty </button>
+        <button><i class="fas fa-bell"></i> Notifications</button>
+        <button><i class="fas fa-lock"></i> Privacy</button>
+    </div-->
+</div>
+<div class="content">
+    <div class="gamesteps-container" style="display:none;">
+        <div class="gamesteps-header">
+        </div>
+    </div>
+
+    <div class="question-container" style="with:100%;">
+        <div class="question-box" style="display:none;"></div>
+    </div>
+    <br>
+    <div class="gamesessions">
+        <div class="gamesteps-container user-info" style="display: block;">
+            <div class="gamesteps-header user-info">Lépj be egy meccsbe! Vagy hozz létre egy újat!
+                <div>
+                    <input type="text" placeholder="Meccs Neve" style="max-width:50% !important;height:45px;font-size: 23px;">
+                        <button class="button-green new_game_session">Létrehozás</button>
+                </div>
+            </div>
+        </div>
+        <div class="sessions-container">
+            <div class="session">Game Session
+                <button style="right:200px;" class="button-green">Belépés</button>
+                <button style="right:10px;" class="button-gray disabled">Végeredmény</button>
+            </div>
+            <div class="session">Game Session 2
+                <button style="right:200px;" class="button-gray disabled">Belépés</button>
+                <button style="right:10px;" class="button-green">Végeredmény</button>
+            </div>
+        </div>
+    </div>
+    <div class="options">
+    </div>
+    <div class="categories">
+    </div>
+</div>
+
+<script>
+
+    $(document).ready(function () {
+
+
+
+        const ws = new WebSocket('ws://192.168.1.20:3000'); // WebSocket szerver
+        let users = [];
+        let typingTimeout;
+        let hostSessionId = null;
+        let divCounter = 0;
+        let correctAnswerIndex = '';
+
+
+        ws.onopen = function () {
+            console.log('Connected to server');
+            $('#status').text('Connected to server');
+            if (!hostSessionId) {
+                hostSessionId = 'sessionId'; // Generálunk egy egyedi ID-t
+                localStorage.setItem("hostSessionId", hostSessionId);
+            }
+            ws.send(JSON.stringify({  action: ['set_role', 'host'], role: 'host', sessionId: localStorage.getItem('hostSessionId') })); // Hostként csatlakozás
+        };
+
+        ws.onmessage = function (event) {
+            let gameSessionStarted = false;
+            const message = JSON.parse(event.data);
+            let firstLoad = false;
+
+            console.log(message);
+
+            if(message.action === 'categories'){
+                console.log('categories', message.categories);
+                localStorage.setItem('categories', JSON.stringify(message.categories));
+                localStorage.setItem('game_session', message.game_session.session_id);
+                console.log(localStorage.getItem('game_session'));
+                showCategories(null);
+
+                if(!firstLoad){
+                    // ha először castlakozik akkor először a játék választ katgóriát
+                    ws.send(JSON.stringify({  action: ['host', 'first_category_selection_timed_out']})); // Hostként csatlakozás
+                    firstLoad = true;
+                }
+
+            }
+
+            if(message.action === 'category_acquired'){
+                setTimeout(function(){
+                    $('.category').eq(message.category[1]).addClass('selected');
+                    //ws.send(JSON.stringify({  action: ['host', 'generate_new_question']})); // Hostként csatlakozás
+                }, 8000);
+                /*$('.gamesteps-container').css('display', 'block').fadeIn('slow', function() {
+                    $('.gamesteps-header').html('<i class="fas fa-exclamation-triangle"></i> <br>Hibatörtént! Nemsikerült új kérdést generálni!');
+                    $(this).addClass('info'); // class hozzáadása
+                    $('.gamesteps-header').addClass('info'); // class hozzáadása
+                });*/
+            }
+
+            if(message.action === 'category_acquired_player'){
+                    $('.category').eq(message.categoryIndex).addClass('selected');
+                    //ws.send(JSON.stringify({  action: ['host', 'generate_new_question']})); // Hostként csatlakozás
+
+
+                /*$('.gamesteps-container').css('display', 'block').fadeIn('slow', function() {
+                    $('.gamesteps-header').html('<i class="fas fa-exclamation-triangle"></i> <br>Hibatörtént! Nemsikerült új kérdést generálni!');
+                    $(this).addClass('info'); // class hozzáadása
+                    $('.gamesteps-header').addClass('info'); // class hozzáadása
+                });*/
+            }
+
+
+
+
+            let inProgressSession = null;
+
+
+            // Végeredmény visszaküldése a user adatokat és pontokat tartalmazva
+            if (message.action === 'result') {
+
+                if (Array.isArray(message.result) && message.result.length > 0) {
+                    $('.option').eq(correctAnswerIndex).addClass('correct');
+                    message.result.forEach(result => {
+
+                        console.log('result ........', result);
+
+                        addDiv(result.answerChoice, result.userName);
+
+                        let answerElement = $('.option').eq(result.answerChoice);
+
+                        if(!result.isCorrect){
+                            answerElement.addClass('incorrect');
+                        }
+
+
+                        let sfId = result.userId;  // Session ID módosítása
+                        console.log(`Játékos: ${sfId}, Válasz: ${result.answerChoice}, Helyes: ${result.isCorrect}, Sebesség: ${result.answerSpeed}`);
+                        console.log('points : ', result.points);
+
+                        // Frissítjük a pontszámot és animáljuk
+                        let playerElement = $('#player-user-' + sfId);
+                        if (playerElement.length) {
+                            if (result.isCorrect) {
+                                // Helyes válasz esetén animációval frissítjük a pontot és háttérszínt
+                                updatePlayerScoreWithAnimation(sfId, result.points);
+                                playerElement.addClass('correct');  // Hozzáadjuk a helyes válasz osztályt
+                            } else {
+                                // Helytelen válasz esetén animáljuk a piros háttért
+                                handleIncorrectAnswer(playerElement);
+                                playerElement.addClass('incorrect');  // Hozzáadjuk a helytelen válasz osztályt
+                            }
+                        } else {
+                            console.warn(`Játékos elem nem található: ${sfId}`);
+                        }
+
+                        // Eltávolítjuk a helyes és helytelen válasz osztályokat a pontok hozzáadása után
+                        setTimeout(() => {
+                            playerElement.removeClass('correct incorrect');  // Eltávolítjuk az animációs osztályokat
+                        }, 2500);  // 2.5 másodperc múlva eltávolítjuk
+                    });
+                    setTimeout(function(){
+                        showCategories(message.worstPlayer.userName);
+                    }, 3000);
+
+
+                } else {
+                    console.warn('message.result tömb üres vagy nem megfelelő formátumú.');
+                }
+
+
+            }
+
+            function showCategories(playerName){
+                $('.gamesessions').fadeOut('slow', function(){
+                    $('.question-box').fadeIn('slow');
+                });
+
+                $('.categories').fadeIn('slow', function(){
+                    setTimeout(() => { // 5 másodperces késleltetés
+                        $('.option').remove(); // Régi opciók törlése
+                        $('.categories').empty(); // Töröljük a korábbi kategóriákat
+
+                        let categories = JSON.parse(localStorage.getItem('categories'));
+                        let headertxt = '' ;
+
+                        if(playerName === null){
+                            headertxt = 'A host új témát választ!'
+                        }else{
+                            headertxt = playerName + ' épp új témát választ!'
+                        }
+
+                        $('.question-box').text(headertxt);
+
+                        categories.forEach((category, index) => {
+                            setTimeout(() => {
+                                let categoryElem = $('<div class="category"></div>')
+                                    .text(category)
+                                    .data('answer-id', index)
+                                    .hide();
+
+                                $('.categories').append(categoryElem);
+                                categoryElem.fadeIn('slow');
+                            }, index * 300); // Késleltetés növelése minden elemnél
+                        });
+
+
+                    }, 2000); // 5 másodperces delay
+                });
+            }
+
+// Animáció a pontszám folyamatos növelésére
+            function updatePlayerScoreWithAnimation(playerId, pointsToAdd) {
+                console.log(playerId);
+
+                let playerElement = $('#player-user-' + playerId);
+
+                if (playerElement.length) {
+                    // Új pontszám-effekt hozzáadása
+                    let pointUpdateElement = $('<div class="point-update">')
+                        .text(pointsToAdd >= 0 ? `+${pointsToAdd}` : `${pointsToAdd}`)
+                        .css({
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            fontSize: '20px',
+                            color: pointsToAdd >= 0 ? 'green' : 'red',
+                            opacity: 0,
+                            fontWeight: 'bold',
+                            zIndex: 1000
+                        });
+
+                    playerElement.append(pointUpdateElement);
+
+                    // Pontszám lebegtetés
+                    pointUpdateElement.fadeTo(500, 1).animate({
+                        top: '30%',
+                        opacity: 0
+                    }, 1000, function () {
+                        $(this).remove();
+                    });
+
+                    // Játékos aktuális pontja
+                    let currentPoints = parseInt(playerElement.find('.user-points').text()) || 0;
+                    let newPoints = currentPoints + pointsToAdd;
+                    let increment = pointsToAdd / 50;
+
+                    let interval = setInterval(() => {
+                        currentPoints += increment;
+                        playerElement.find('.user-points').text(Math.round(currentPoints));
+
+                        if (Math.round(currentPoints) >= newPoints) {
+                            clearInterval(interval);
+                            playerElement.find('.user-points').text(newPoints);
+                            animatePlayerSorting();
+                        }
+                    }, 20);
+                } else {
+                    console.warn(`Player with ID ${playerId} not found.`);
+                }
+            }
+
+// Játékosok átrendezése animációval
+            function animatePlayerSorting() {
+                let userDiv = $('.user-div');
+                let players = $('.user-div .user-card');
+                let animationSpeed = 500; // Animáció sebessége (ms)
+
+                // **Eltároljuk az eredeti pozíciókat és a DOM sorrendet**
+                let initialPositions = {};
+                let initialOrder = [];
+                players.each(function (index) {
+                    let $el = $(this);
+                    initialPositions[$el.data('player-id') || index] = $el.position().top;
+                    initialOrder.push($el.data('player-id') || index);
+                });
+
+                // **Pontok alapján sorba rendezzük a játékosokat**
+                let sortedPlayers = players.toArray().sort((a, b) => {
+                    let scoreA = parseInt($(a).find('.user-point').text(), 10);
+                    let scoreB = parseInt($(b).find('.user-point').text(), 10);
+                    return scoreB - scoreA;
+                });
+
+                // **A DOM sorrendjét frissítjük (animációval)**
+                userDiv.css('position', 'relative'); // Szükséges az abszolút pozicionáláshoz
+
+                // Először minden játékost abszolút pozícióba helyezünk az eredeti helyére
+                players.each(function (index) {
+                    let $el = $(this);
+                    let playerId = $el.data('player-id') || index;
+                    $el.css({
+                        'position': 'absolute',
+                        'top': initialPositions[playerId] + 'px',
+                        'left': $el.position().left + 'px',
+                        'width': $el.outerWidth(), // Fontos, hogy ne ugráljon a szélesség
+                        'z-index': 1 // Biztosítja, hogy az animált elemek felül legyenek
+                    });
+                });
+
+                // Üres userDiv, hogy a rendezett elemeket be tudjuk szúrni
+                userDiv.empty();
+
+                // A rendezett elemeket hozzáfűzzük (ez még nem látható, mert abszolút pozícióban vannak)
+                sortedPlayers.forEach(element => userDiv.append(element));
+
+                // Most animáljuk a top pozíciót az új helyükre
+                $(sortedPlayers).each(function (index) {
+                    let $el = $(this);
+                    $el.animate({
+                        'top': $el.position().top + 'px' // Az append utáni új pozíció
+                    }, animationSpeed, function() {
+                        // Animáció vége után visszaállítjuk a relatív pozíciót az első 3-nál, hogy a szöveg igazodjon
+                        if (index < 3) {
+                            $el.css('position', 'relative');
+                        }
+                    });
+
+                    // **Top 3 játékos kiemelése (animációval)**
+                    $el.removeClass('gold-medal silver-medal bronze-medal'); // Előző kiemelések eltávolítása
+
+                    if (index === 0) {
+                        $el.delay(animationSpeed / 2).queue(function(next) {
+                            $(this).addClass('gold-medal');
+                            next();
+                        });
+                    } else if (index === 1) {
+                        $el.delay(animationSpeed / 2).queue(function(next) {
+                            $(this).addClass('silver-medal');
+                            next();
+                        });
+                    } else if (index === 2) {
+                        $el.delay(animationSpeed / 2).queue(function(next) {
+                            $(this).addClass('bronze-medal');
+                            next();
+                        });
+                    }
+                });
+
+                // Az összes többi játékosnál is legyen egy kis áttűnés
+                $(sortedPlayers).slice(3).each(function() {
+                    $(this).css('opacity', 0).delay(animationSpeed).animate({ opacity: 1 }, animationSpeed / 2);
+                });
+            }
+
+
+
+
+
+
+// Helytelen válasz kezelése (rázkódás animáció)
+            function handleIncorrectAnswer(playerId) {
+                /*let playerElement = $('#player-user-' + playerId);
+                if (playerElement.length) {
+                    playerElement.addClass('incorrect');
+
+                    setTimeout(() => {
+                        playerElement.removeClass('incorrect');
+                    }, 500);
+                }*/
+            }
+
+
+            if (message.gameSessions && Array.isArray(message.gameSessions)) {
+
+                let $gameSessionsContainer = $('.gamesessions');
+
+                // Csak azokat az elemeket töröljük, amelyek nem tartalmazzák a .persistent-session osztályt
+                $gameSessionsContainer.children(':not(.gamesteps-container)').remove();
+
+                // Létrehozzuk a session-container div-et
+                let $sessionContainer = $('<div>', { class: 'session-container' }).css({
+                    marginTop: "35%"
+                });
+
+                message.gameSessions.forEach(session => {
+                    if (!session) return;
+
+                    // Session div létrehozása
+                    let $sessionDiv = $('<div>', { class: 'session' }).text(session.game_name).css({
+                        marginTop: "10px",
+                        paddingLeft: 10,
+                        paddingBottom: "-20px"
+                    });
+
+                    // Gombok konténere
+                    let $buttonContainer = $('<div>', { class: 'button-container' }).css({
+                        display: 'flex',
+                        gap: '10px'
+                    });
+
+                    let login, result = '';
+
+                    if(session.status === "completed"){
+                        login = 'button-gray disabled bttn-1';
+                        result = 'button-green bttn-2';
+                    }else{
+                        login = 'button-green bttn-1';
+                        result = 'button-gray disabled bttn-2';
+                    }
+
+                    // Belépés gomb
+                    let $joinButton = $('<button>', {
+                        class: login,
+                        text: 'Belépés'
+                    }).attr({
+                        gameId: session.id
+                    });
+
+                    // Végeredmény gomb
+                    let $resultButton = $('<button>', {
+                        class: result,
+                        text: 'Végeredmény'
+                    }).attr({
+                        gameId: session.id
+                    });
+
+                    // Gombok hozzáadása a konténerhez
+                    $buttonContainer.append($joinButton, $resultButton);
+
+                    // A session div-hez hozzáadja a gomb-konténert
+                    $sessionDiv.append($buttonContainer);
+
+                    // Session div hozzáadása a session-container-hez
+                    $sessionContainer.append($sessionDiv);
+                });
+
+                // Végül a session-container hozzáadása a .gamesessions div-hez
+                $gameSessionsContainer.append($sessionContainer);
+            }
+
+
+            if (message.action === 'new_question') {
+                // Töröljük a korábbi kategóriákat
+                $('.option #player-div').remove();
+                // Kérdés és válaszok fadeOut animációval eltűnnek
+                $('.option, .categories').fadeOut('slow', function(){
+
+                    $('.options, .categories').empty(); // A válaszok törlése
+                });
+                $('.question-box').fadeOut('slow', function () {
+                    // Kérdés és válaszok törlése a fadeOut animáció után
+                    $('.question-box').remove();
+
+                    // 2 másodperces késleltetéssel kezdjük az új kérdés és válaszok megjelenítését
+                    setTimeout(function () {
+                        // Kérdés hozzáadása újra
+                        let questionElem = $('<div class="question-box"></div>')
+                            .text(message.question.question)
+                            .hide(); // Elrejtjük a kérdést kezdetben
+
+                        // Kérdés hozzáadása az oldalhoz
+                        $('.question-container').append(questionElem);
+
+                        // Kérdés animált megjelenítése
+                        questionElem.fadeIn('slow');
+
+                        let answers = message.question.answers;
+                        let delay = 500; // Az első válasz megjelenése után 2 másodperc
+
+                        // Válaszok fokozatos megjelenítése 2 másodpercenként
+                        answers.forEach((answer, index) => {
+                            setTimeout(function () {
+                                let answerElem = $('<div class="option"></div>')
+                                    .text(answer.text)
+                                    .data('answer-id', index)
+                                    .hide(); // Elrejtjük a választ kezdetben
+
+                                // Válasz hozzáadása
+                                $('.options').append(answerElem);
+
+                                if(answer.correct === true){
+                                    console.log(index);
+                                    correctAnswerIndex = index;
+                                }
+
+                                // FadeIn animáció a válaszokra
+                                answerElem.fadeIn('slow');
+                                divArrays = [];
+                            }, delay);
+
+                            delay += 500; // Késleltetés növelése minden válasz után
+                        });
+
+                        questionStartTime = performance.now(); // Időmérés indítása
+                    }, 1500); // 2 másodperccel a kérdés után
+                });
+
+                // Először eltávolítjuk a már létező eseménykezelőt
+                $(document).off('click', '.answer');
+
+                // Új eseménykezelő hozzáadása
+                $(document).on('click', '.answer', function (e) {
+                    let answerId = $(this).data('answer-id');
+
+                    submitAnswer(answerId); // Válasz elküldése a szervernek
+
+                    // Gombok letiltása, hogy ne lehessen újra rákattintani
+                    $('.option').css('pointer-events', 'none');
+                });
+            }
+            //localStorage.setItem('users');
+            /*
+            let loggedUsers = JSON.parse(localStorage.getItem('users'));
+
+            console.log('loggeD_suers', loggedUsers);
+
+            if(loggedUsers.length){
+                console.log('van belépett user');
+                loggedUsersArray();
+            }
+*/
+            $(document).on('click', 'button#generate-new-question', function() {
+                const button = $(this);
+
+                // Ha már kattintottak a gombra, akkor ne csináljon semmit
+                if (button.data('clicked')) return;
+                button.data('clicked', true); // Jelzi, hogy a gombot már megnyomták
+
+                // Szürke szűrő a gombon
+                button.css({'filter': 'grayscale(100%)'});
+
+                console.log('new_question');
+                ws.send(JSON.stringify({ action: ['host', 'generate_new_question']}));
+
+                // Visszaszámláló elindítása
+                startCountdown(button, 5); // 5 másodperces visszaszámláló indítása
+
+                // Két másodperc után visszaállítjuk a gomb szürke szűrőjét
+                setTimeout(() => {
+                    button.css({'filter': 'grayscale(0%)', 'transition': 'filter 0.5s ease'});
+                    stopCountdown(button); // Leállítjuk a visszaszámlálót, ha szükséges
+
+                    // Engedélyezzük újra a gomb kattintását
+                    button.data('clicked', false);
+                }, 5000);  // 5 másodperc után visszaállítjuk a gombot
+            });
+
+            $(document).on('click', '.button-container .bttn-1', function() {
+                var $button = $(this); // Mentse el a gombot
+
+                // Ha a gomb már le van tiltva, akkor nem küldünk több kérést
+                if ($button.prop('disabled')) {
+                    return;
+                }
+
+                // Elküldjük az üzenetet
+                ws.send(JSON.stringify({
+                    action: ['host', 'enter_game_session'],
+                    id: $button.attr('gameid')
+                }));
+
+                console.log('enter session: ', $button.attr('gameid'));
+
+                // Letiltjuk a gombot, hogy ne lehessen rákattintani még egyszer
+                $button.prop('disabled', true);
+
+                // Esemény eltávolítása, hogy csak egyszer fusson le
+                $button.off('click');
+            });
+
+            // Indítja a visszaszámlálót
+            function startCountdown(element, time) {
+                let countdownValue = time;  // Az idő, amit átadtál
+                let countdownInterval = null; // Egyedi változó minden egyes indításhoz
+
+                // Hozzáadunk egy adatkulcsot az elemhez, ami tárolja az intervallumot
+                $(element).data('countdownInterval', setInterval(function() {
+                    countdownValue--; // Csökkentjük az értéket
+                    $('#countdown').text('(' + countdownValue + ')'); // Frissítjük a kijelzőt
+
+                    if (countdownValue <= 0) {
+                        clearInterval($(element).data('countdownInterval'));
+                        $('#countdown').text(''); // Töröljük a kijelzőt, ha vége
+                    }
+                }, 1000)); // 1 másodpercenként frissítjük
+            }
+
+// Leállítja a visszaszámlálót az adott elemhez tartozó intervallumot
+            function stopCountdown(element) {
+                let countdownInterval = $(element).data('countdownInterval');
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                    $('#countdown').text(''); // Töröljük a kijelzőt
+                    $(element).removeData('countdownInterval'); // Eltávolítjuk az adatot
+                }
+            }
+
+            let safeId = null;
+            if(message.action === "hostReconnect") {
+
+                Object.values(message.players).forEach((player) => {
+                    safeId = 'player-session-' + player.session_id.replace(/\./g, '_');
+                    $('.players-box').append('<div class="player" id="' + safeId + '">' + player.name + ' <span id="points">0</span></div>');
+                });
+            }
+
+            switch (message.action) {
+                case 'user_logged':
+                    userLogged(message.user);
+                    break;
+                case 'user_disconnected' :
+                    //userDisconnectedFadeColor(message.user_id);
+
+                    break;
+                case 'user_reconnected' :
+                    userLogged(message.user);
+                    break;
+                case 'newPlayer' :
+                    userLogged(message.user);
+                    break;
+                case 'player_scores' :
+                    updatePlayerScores(message.scores);
+                    console.log(message.scores);
+                    break;
+                case 'newSession' :
+                    const newSession = message.gameSession[0];
+                    safeId = 'player-session-' + newSession.session_id.replace(/\./g, '_');
+                    $('.sessions-box').append('<div class="session" id="' + safeId + '">' + newSession.game_name + ' - ' + newSession.status + ' <span>X</span></div>');
+
+                    break;
+                case 'hostReconnect' :
+                    //console.log('players', message.players);
+                    Object.values(message.players).forEach((player) => {
+                        safeId = 'player-session-' + player.session_id.replace(/\./g, '_');
+                        $('.players-box').append('<div class="player" id="' + safeId + '">' + player.name + ' <span id="points">0</span></div>');
+                    });
+                    break;
+                default:
+                    console.warn('Unknown action:',);
+                    break;
+            }
+
+            if(message.action === 'question_error'){
+                $('.gamesteps-container').css('display', 'block').fadeIn('slow', function() {
+                    $('.gamesteps-header').html('<i class="fas fa-exclamation-triangle"></i> <br>Hibatörtént! Nemsikerült új kérdést generálni!');
+                    $(this).addClass('warning'); // class hozzáadása
+                    $('.gamesteps-header').addClass('error'); // class hozzáadása
+                });
+            }
+
+
+
+        };
+
+        ws.onerror = function(event) {
+            // Ha az elem nincs láthatóan, először megjelenítjük
+            $('.gamesteps-container').css('display', 'block').fadeIn('slow', function() {
+                $('.gamesteps-header').html('<i class="fas fa-exclamation-triangle"></i> <br>Hibatörtént! Kérlek ellenőrizd a log-okat');
+                $(this).addClass('error'); // class hozzáadása
+                $('.gamesteps-header').addClass('error'); // class hozzáadása
+            });
+        };
+
+        function loggedUsersArray(usersArray) {
+            console.log('logged', usersArray);
+
+            //if (!Array.isArray(usersArray) || usersArray.length === 0) return; // Ha nincs adat, kilépünk
+
+            console.log('Felhasználók:', usersArray);
+
+            usersArray.forEach(user => {
+                let safeId = 'player-user-' + user.id;
+
+                const userCardCount = $('.user-card[id="' + safeId + '"]').length;
+
+                console.log('userCardCount:', userCardCount);
+
+                if (userCardCount === 0) {
+                    let playerCard = $('<div class="user-card" id="' + safeId + '">' + user.name + '<br>Pontok: <div id="points">0</div></div>');
+
+                    playerCard.data('user-name', user.name);
+                    playerCard.data('user-id', user.id);
+
+                    $('.users').append(playerCard);
+                    playerCard.hide().fadeIn('slow');
+                } else {
+                    console.log(`A(z) ${user.name} nevű felhasználó már létezik.`);
+                }
+
+                // Ha a felhasználó visszacsatlakozik, távolítsuk el a .disconnected osztályt
+                let playerCard = $('.user-card[id="' + safeId + '"]');
+                playerCard.removeClass('disconnected');
+            });
+
+            console.log('users_logged');
+        }
+
+
+
+        function userLogged(user) {
+            // Alapértelmezett pontok beállítása, ha nincsenek.
+            user.points = user.points || 0;
+
+            users.push(user);
+            localStorage.setItem('users', JSON.stringify(users));
+
+            let safeId = 'player-user-' + user.id; // session_id helyett user_id
+
+            // Ellenőrizzük, hogy a felhasználó már létezik-e
+            if ($('.sidebar .user-card[id="' + safeId + '"]').length === 0) {
+
+                let playerCard = $(`
+            <div class="user-card" id="${safeId}">
+                <img src="https://i.pravatar.cc/100" alt="User Avatar" class="user-avatar">
+                <div class="user-info">
+                    <h2>${user.name}</h2>
+                    <p class="points">Pontok: <span class="user-points" style="font-weight: bold;font-size: 20px">0</span></p>
+                </div>
+            </div>
+        `);
+
+                playerCard.data('user-name', user.name);
+                playerCard.data('user-id', user.id);
+
+                $('.user-div').append(playerCard);
+                playerCard.hide().fadeIn('slow');
+
+            }
+            // Ha a felhasználó visszacsatlakozik, távolítsuk el a .disconnected osztályt
+            $('.sidebar .user-card[id="' + safeId + '"]').removeClass('disconnected');
+        }
+
+
+        function userDisconnectedFadeColor(user_id) {
+            console.log(user_id);
+            // Safe ID generálása a user_id alapján
+            let safeId = 'player-user-' + user_id; // session_id helyett user_id
+
+            // Ellenőrizzük, hogy létezik-e ilyen felhasználó
+            let playerCard = $('.user-card[id=' + safeId + ']'); // Javítottunk az id keresésén
+
+            console.log('cout', playerCard);
+
+            if (playerCard.length) {
+                // Hozzáadjuk a "disconnected" osztályt
+                playerCard.addClass('disconnected');
+
+                // Fokozatos színváltás és árnyék erősítés
+                playerCard.animate({}, 1000, function() {
+                    // Hozzáadjuk az "active-shadow" osztályt, hogy az árnyék erősödjön
+
+                    // Késleltetés után visszaváltunk az eredeti állapotba
+                    setTimeout(function() {
+                        // Eltávolítjuk az "active-shadow" osztályt, hogy az árnyék gyengüljön
+                        playerCard.removeClass('disconnected');
+                    }, 2000); // 2 másodperc után eltávolítjuk az erősebb árnyékot
+                });
+                console.log('User disconnected and color changed:', safeId);
+            }
+        }
+
+        function removeHomeContainer(){
+            $('.container').remove();
+        }
+
+
+        function handlePlayerJoin(playerData) {
+            let safeId = 'player-session-' + playerData.session_id.replace(/\./g, '_'); // Pontok cseréje aláhúzásra
+
+            let playerElement = $('<p>')
+                .attr('id', safeId) // Egyedi, biztonságos azonosító
+                .text(playerData.playerName);
+
+            $('#playersList').append(playerElement); // Hozzáadás a listához
+
+            console.log('Player Joined:', playerData);
+        }
+
+
+
+        $('#broadcast').on('click', function () {
+            // broadcast data
+            console.log('broadcast');
+            const playerSession = {
+                action: ['host', 'send_message'],
+                message: 'test_message'
+            };
+            ws.send(JSON.stringify(playerSession));
+        });
+
+
+        function handleGameSessions(message) {
+            console.log(message.serverData) ;
+            serverInfo = message.serverData[0];
+
+            if (message.inProgress) {
+
+                $( "<p>"+serverInfo.game_name+"</p>" ).appendTo( "#server-status" );
+                $('#createGameButton').remove();
+            }
+        }
+
+
+        // A settings menü almenüjének a megjelenítése
+        $('.settings-btn').click(function() {
+            $(this).toggleClass('active');  // Kattintásra váltja az 'active' osztályt
+            $(this).next('.settings-submenu').slideToggle();  // Megjeleníti/eltünteti az almenüt
+        });
+
+        // Tömb, amely tartalmazza a div-eket
+        let divArrays = [];
+
+        function addDiv(answerChoice, userName) {
+            const optionContainer = $('.option').eq(answerChoice); // Az adott válasz konténere
+
+            // Keresünk egy meglévő player-container-t, ha nincs, létrehozzuk
+            let playerContainer = optionContainer.find('.player-container');
+            if (playerContainer.length === 0) {
+                playerContainer = $('<div class="player-container"></div>');
+                optionContainer.append(playerContainer);
+            }
+
+            // Új játékos div létrehozása
+            const newDiv = $('<div class="player-div">' + userName + '</div>');
+
+            // Játékos hozzáadása a containerhez
+            playerContainer.append(newDiv);
+        }
+
+
+        function createTypeWriter(text, elementId, speed) {
+            let i = 0;
+            const $element = $("#" + elementId);
+            let typingTimeout;
+
+            function type() {
+                if (i < text.length) {
+                    $element.append(text.charAt(i)); // A szöveg egy karakterét hozzáadjuk az elemhez
+                    i++;
+                    typingTimeout = setTimeout(type, speed); // Rekurzív hívás, hogy minden karaktert egyesével írjon ki
+                } else {
+                    setTimeout(function() {
+                        $element.html(''); // A szöveg törlése, ha teljesen kiírta
+                        i = 0; // Visszaállítjuk az indexet
+                        type(); // Újraindítjuk a gépelést
+                    }, 1000); // Vár 1 másodpercet (testreszabható) a szöveg újraindulásához
+                }
+            }
+
+            return {
+                start: function() {
+                    type(); // Elindítja a gépelést
+                },
+                stop: function() {
+                    clearTimeout(typingTimeout); // Megállítja a típus hatást
+                    $element.html(''); // Törli a szöveget, ha leállítjuk
+                }
+            };
+        }
+
+        let writer1 = createTypeWriter("", "output", 200);
+        //writer1.start();
+        // leállítja az adott typert
+        //writer1.stop();
+
+    });
+</script>
+</body>
+</html>
